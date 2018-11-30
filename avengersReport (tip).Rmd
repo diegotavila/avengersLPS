@@ -1,5 +1,5 @@
 ---
-title: "avengersLPS"
+title: "[CMP595] Final Project - Avengers, their Deaths and Subsequent Return to Life."
 output: pdf_document
 ---
 
