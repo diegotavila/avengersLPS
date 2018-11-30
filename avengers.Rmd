@@ -1,0 +1,291 @@
+---
+title: "avengersLPS"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Introduction
+
+#Loading the CSV File
+
+Download the CSV from FiveThirtyEight Github and save as "avengers.csv"
+
+```{r}
+library(tidyverse)
+file = "avengers2.csv"
+if(!file.exists(file)){
+  download.file("https://raw.githubusercontent.com/fivethirtyeight/data/master/avengers/avengers.csv",
+	destfile=file)
+}
+```
+
+Loading "avengers.csv" in variable "avengers_df"
+```{r}
+library(readr);
+avengers_df <- read.csv("avengers.csv", quote="\"");
+avengers_df;
+```
+
+#Overall analysis of the data
+
+```{r}
+avengers_df %>% str
+```
+
+```{r}
+avengers_df %>% summary()
+```
+
+Some columns have inadequate typing.URL,Name.Alias and Notes should be string. Converting them:
+ #Probationary.Introl and Full.Reserve are month-year dates
+
+
+
+```{r}
+avengers_df$URL <-  as.character(avengers_df$URL)
+avengers_df$Name.Alias <-  as.character(avengers_df$Name.Alias)
+avengers_df$Notes <-  as.character(avengers_df$Notes)
+#avengers_df$Probationary.Introl <- as.Date(avengers_df$Probationary.Introl, format = "%b-%y")
+avengers_df %>% str
+```
+
+
+
+#Converting to Tidy data
+
+The dataframe contains five columns that register if the Avenger has died. Each column represents their first, second, third, fourth and fifth deaths. Similarly. there are also five columns that represent if the Avenger has revived. These 10 columns simply contain YES or NO values.
+
+There is no information of when the Avenger has died. In fact, the dataframe is essentially a list of all Avengers that have existed. Therefore, converting each death into different rows does not make sense.
+
+Instead, to make the number of deaths and revivals simpler, I will simply convert the number of YES values for each into an integer.
+
+
+```{r}
+library(tidyverse)
+
+avengers_tidydf <- avengers_df %>% 
+  mutate(Total.Deaths = avengers_df %>% select(Death1,Death2,Death3,Death4,Death5) %>% apply(1, function(x) length(x[x=="YES"])))   %>% 
+  mutate(Total.Return = avengers_df %>% select(Return1,Return2,Return3,Return4,Return5) %>% apply(1, function(x) length(x[x=="YES"]))) %>%
+  subset(select=-c(Death1,Death2,Death3,Death4,Death5,Return1,Return2,Return3,Return4,Return5))
+avengers_tidydf
+
+
+```
+
+#Question 1: Is there some characteristic that makes an Avenger more likely to have died?
+
+##Gender
+
+Let's start with Gender:
+
+```{r}
+  avengers_tidydf %>% 
+  select(Gender,Total.Deaths) %>% 
+  group_by(Gender,Total.Deaths) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x=Total.Deaths, y = NumberOfAvengers, fill = Gender)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label= NumberOfAvengers), position = position_dodge(width = 0.9)) +
+  scale_x_continuous("Number of Deaths", breaks = c(0,1,2,3,4,5)) +
+  ylab("Number of Avengers")
+```
+From the graph, I can see that, while there are more male Avengers in general, women are more likely to not die than men (column 0) compared to dying exactly one time (column 1). This may be more clearly seen in the next plot:
+
+
+```{r}
+  avengers_tidydf %>% 
+  select(Gender,Total.Deaths) %>% 
+  group_by(Gender,Total.Deaths) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= Gender, y = NumberOfAvengers, fill = as.factor(Total.Deaths))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Deaths", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  xlab("Gender") +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+##Honorary Status
+
+Let's try honorary status. As seen in the graph, Academic and Honorary Avengers are more likely to not have died compared to Full-time Avengers.
+
+```{r}
+  avengers_tidydf %>% 
+  select(Honorary,Total.Deaths) %>% 
+  group_by(Honorary,Total.Deaths) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= Honorary, y = NumberOfAvengers, fill = as.factor(Total.Deaths))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Deaths", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  xlab("Honorary Status") +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+##Number of Years since joining the Avengers
+
+
+Let's analyze Years.since.joining. Years.since.joining is equal to, by the datasets definition, the year 2015 (when the dataset was created) minus the year the character was introduced as a member of the Avengers. Because of this, there is some problematic values in these columns, in that the year the character was introduced is 1900. 
+
+```{r}
+  avengers_tidydf %>% 
+  select(Year) %>% 
+  group_by(Year) %>%  
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= Year, y = NumberOfAvengers, )) +
+  geom_col() +
+  scale_x_continuous(name= "Year a character was introduced as a member of the Avengers") +
+  scale_y_continuous(name = "Number of Avengers")#+
+```
+
+
+It is possible (and likely, looking at the Marvel wiki entries on these characters) that this value is simply the earliest possible year for the variable, which means that the year the character was introduced is unknown. Therefore, these plots should filter out these Avengers.
+
+Since Years.since.joining is an integer variable, I grouped the rows by its 10 quantiles. Its subtle, but the longer an Avenger has been part of the team, the more likely it is for him to have died. Curiously, though, once you've been an Avenger for long enough, your likelyhood of not dying increases.
+
+```{r}
+  avengers_tidydf %>% 
+  filter(Year != 1900) %>%
+  select(Years.since.joining,Total.Deaths) %>%
+  arrange(Years.since.joining) %>% 
+  mutate(quartile = as.factor(ntile(Years.since.joining, 10))) %>%
+  group_by(quartile,Total.Deaths) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= quartile, y = NumberOfAvengers, fill = as.factor(Total.Deaths))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Deaths", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  scale_x_discrete(name= "Quantile" ,labels = c("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")) +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+##Number of Appereances in comic books
+
+I repeated the previous process for the number of appereances.
+
+
+```{r}
+  avengers_tidydf %>% 
+  select(Appearances,Total.Deaths) %>% 
+  arrange(Appearances) %>% 
+  mutate(quartile = as.factor(ntile(Appearances, 10))) %>%
+  group_by(quartile,Total.Deaths) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= quartile, y = NumberOfAvengers, fill = as.factor(Total.Deaths))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Deaths", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  scale_x_discrete(name= "Quantile" ,labels = c("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")) +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+#Question 2: Is there some characteristic that makes an Avenger more likely to have revived?
+
+##Filtering all Avengers that have not died
+I can repeat the plots from question 1 here, with one alteration. I need to filter all avengers that have not died from the dataframe. So:
+
+```{r}
+avengersThatDied_tidydf <- avengers_tidydf %>%
+                           filter(Total.Deaths!=0)
+avengersThatDied_tidydf
+```
+
+
+##Gender
+
+Let's start with Gender:
+
+```{r}
+  avengersThatDied_tidydf %>% 
+  select(Gender,Total.Return) %>% 
+  group_by(Gender,Total.Return) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= Gender, y = NumberOfAvengers, fill = as.factor(Total.Return))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Revivals", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  xlab("Gender") +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+##Honorary Status
+
+```{r}
+  avengersThatDied_tidydf %>% 
+  select(Honorary,Total.Return) %>% 
+  group_by(Honorary,Total.Return) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= Honorary, y = NumberOfAvengers, fill = as.factor(Total.Return))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Revivals", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  xlab("Honorary Status") +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+##Number of Years since joining the Avengers
+
+
+```{r}
+  avengersThatDied_tidydf %>%
+  filter(Year != 1900) %>%
+  select(Years.since.joining,Total.Return) %>% 
+  arrange(Years.since.joining) %>% 
+  mutate(quartile = as.factor(ntile(Years.since.joining, 10))) %>%
+  group_by(quartile,Total.Return) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= quartile, y = NumberOfAvengers, fill = as.factor(Total.Return))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Revivals", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  scale_x_discrete(name= "Quantile" ,labels = c("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")) +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+##Number of Appereances in comic books
+
+```{r}
+  avengersThatDied_tidydf %>% 
+  select(Appearances,Total.Return) %>% 
+  arrange(Appearances) %>% 
+  mutate(quartile = as.factor(ntile(Appearances, 10))) %>%
+  group_by(quartile,Total.Return) %>%
+  summarize(NumberOfAvengers = n()) %>%
+  ggplot(aes(x= quartile, y = NumberOfAvengers, fill = as.factor(Total.Return))) +
+  geom_col(position = "fill", width = .5) +
+  scale_fill_brewer(name ="Total Number of Revivals", palette = "Dark2") +
+  geom_text(aes(label= NumberOfAvengers), position = position_fill(vjust=.5)) +
+  scale_x_discrete(name= "Quantile" ,labels = c("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")) +
+  scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+#Question 3: Is the number of comic book appearances of a superhero correlated to the number of years since he joined the team?
+
+Again, I filtered out the Avengers with invalid Year values. Then, I plotted a point for each Avenger based on the two dimensions. Based on the points it is possible to observe a hard limit of 52 on the number of years.since.joining, which is natural considering the first team of Avengers was formed in 1963.
+
+I also plotted a "locally estimated scatterplot smoothing" with geom_smooth(). I used a logarithmic formula based on an observation of the points and because of the hard limit observed on the number of years.
+
+```{r}
+  avengers_tidydf %>%  
+  filter(Year != 1900) %>%
+  ggplot(aes(x= Appearances, y = Years.since.joining)) +
+  #geom_text(aes(label=Name.Alias))+
+  geom_jitter() + 
+  geom_smooth(method = loess, formula=y ~ log(x))
+  #xlab("Honorary Status") +
+  #scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
+
+
+This plot shows a positive correlation between these two variables, but there might be some abnormality because of more popular superheros, such as Spider-Man.
+
+```{r}
+  avengers_tidydf %>%  
+  filter(Year != 1900, Appearances <1000) %>%
+  ggplot(aes(x= Appearances, y = Years.since.joining)) +
+  #geom_text(aes(label=Name.Alias))+
+  geom_jitter() + 
+  geom_smooth(method = loess)
+  #xlab("Honorary Status") +
+  #scale_y_continuous(name = "Number of Avengers", labels = scales::percent)#+
+```
